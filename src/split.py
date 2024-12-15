@@ -2,7 +2,7 @@
 TS Split
 """
 
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from collections import deque
 
@@ -89,9 +89,9 @@ def divide_h_abs_ts_int_groups(xyz: dict,
 
 def get_adjlist_from_dmat(dmat: Union[np.ndarray, list],
                           symbols: Tuple[str, ...],
-                          h: int,
-                          a: int,
-                          b: int,
+                          h: Optional[int] = None,
+                          a: Optional[int] = None,
+                          b: Optional[int] = None,
                           ) -> Dict[int, List[int]]:
     """
     Get an adjacency list from a DMat.
@@ -107,23 +107,75 @@ def get_adjlist_from_dmat(dmat: Union[np.ndarray, list],
         Dict[int, List[int]]: The adjlist.
     """
     adjlist = dict()
-    for atom_1 in range(len(symbols)):
-        if atom_1 == h:
-            continue
-        for atom_2 in range(len(symbols)):
-            if atom_2 in [h, atom_1]:
+    if h is None and a is None and b is None:
+        for atom_1 in range(len(symbols)):
+            for atom_2 in range(len(symbols)):
+                if atom_2 == atom_1:
+                    continue
+                if dmat[atom_1][atom_2] <= MAX_LENGTH:
+                    if bonded(dmat[atom_1][atom_2], symbols[atom_1], symbols[atom_2]):
+                        if atom_1 not in adjlist:
+                            adjlist[atom_1] = list()
+                        adjlist[atom_1].append(atom_2)
+        return adjlist
+    else:
+        for atom_1 in range(len(symbols)):
+            if atom_1 == h:
                 continue
-            if dmat[atom_1][atom_2] <= MAX_LENGTH:
+            for atom_2 in range(len(symbols)):
+                if atom_2 in [h, atom_1]:
+                    continue
+                if dmat[atom_1][atom_2] <= MAX_LENGTH:
 
-                if bonded(dmat[atom_1][atom_2], symbols[atom_1], symbols[atom_2]):
-                    if atom_1 not in adjlist:
-                        adjlist[atom_1] = list()
-                    adjlist[atom_1].append(atom_2)
-    adjlist[h] = [a, b]
-    adjlist[a].append(h)
-    adjlist[b].append(h)
-    return adjlist
+                    if bonded(dmat[atom_1][atom_2], symbols[atom_1], symbols[atom_2]):
+                        if atom_1 not in adjlist:
+                            adjlist[atom_1] = list()
+                        adjlist[atom_1].append(atom_2)
+        adjlist[h] = [a, b]
+        if a not in adjlist:
+            adjlist[a] = list()
+        adjlist[a].append(h)
+        if b not in adjlist:
+            adjlist[b] = list()
+        adjlist[b].append(h)
+        return adjlist
 
+# def optimized_get_adjlist_from_dmat(dmat: Union[np.ndarray, list],
+#                                         symbols: Tuple[str, ...],
+#     h: Optional[int] = None,
+#     a: Optional[int] = None,
+#     b: Optional[int] = None,
+# ) -> Dict[int, List[int]]:
+#     """
+#     Optimized function to get adjacency list from distance matrix.
+#     """
+#     from collections import defaultdict
+#     adjlist = defaultdict(list)
+#     num_atoms = len(symbols)
+
+#     # Create a bonded mask: bonded_pairs[i, j] is True if atoms i and j are bonded
+#     bonded_mask = (dmat <= MAX_LENGTH)
+
+#     # Use NumPy broadcasting to apply the `bonded` function elementwise
+#     bonded_check = np.vectorize(
+#         lambda i, j: bonded(dmat[i][j], symbols[i], symbols[j])
+#     )
+#     bonded_pairs = bonded_mask & bonded_check(
+#         *np.indices(dmat.shape)  # Generate all (i, j) indices
+#     )
+
+#     # Process general case
+#     for atom_1, atom_2 in zip(*np.where(bonded_pairs)):
+#         if atom_1 != atom_2:  # Avoid self-loops
+#             adjlist[atom_1].append(atom_2)
+
+#     # Handle specific case of h, a, b
+#     if h is not None and a is not None and b is not None:
+#         adjlist[h] = [a, b]
+#         adjlist[a].append(h)
+#         adjlist[b].append(h)
+
+#     return dict(adjlist)
 
 def bonded(distance: float, s1: str, s2: str) -> bool:
     """

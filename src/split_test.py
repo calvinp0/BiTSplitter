@@ -28,16 +28,24 @@ class TestTSSplit(unittest.TestCase):
 
     def test_get_adjlist_from_dmat(self):
         """Test get_adjlist_from_dmat"""
-        symbols = ('O', 'N', 'C', 'H', 'H', 'S', 'H')
-        d = [[0., 1.44678738, 2.1572649, 3.07926623, 2.69780089, 1.74022888, 1.95867823],
-             [1.44678738, 0., 1.47078693, 2.16662322, 2.12283495, 2.34209263, 1.02337844],
-             [2.1572649, 1.47078693, 0., 1.09133324, 1.09169397, 1.82651322, 2.02956962],
-             [3.07926623, 2.16662322, 1.09133324, 0., 1.80097071, 2.51409166, 2.30585633],
-             [2.69780089, 2.12283495, 1.09169397, 1.80097071, 0., 2.45124337, 2.92889793],
-             [1.74022888, 2.34209263, 1.82651322, 2.51409166, 2.45124337, 0., 2.68310024],
-             [1.95867823, 1.02337844, 2.02956962, 2.30585633, 2.92889793, 2.68310024, 0.]]
-        adjlist = split.get_adjlist_from_dmat(dmat=d, symbols=symbols, h=3, a=2, b=5)  # b is incorrect chemically
-        self.assertEqual(adjlist, {0: [1, 5], 1: [0, 2, 6], 2: [1, 4, 5, 3], 4: [2], 5: [0, 2, 3], 6: [1], 3: [2, 5]})
+
+        ts_coords = """C      -0.00395600   -0.04326400   -1.40455000
+C      -0.00845300   -0.09246500   -0.20543800
+C      -0.00943900   -0.10325600    1.22383200
+H      -0.00109100   -0.01190900   -2.46751900
+H       0.09877600    1.08073700    1.63721200
+H       0.85012800   -0.60354300    1.66512700
+H      -0.94545600   -0.43943000    1.66512700
+H       0.18507500    2.02494800    2.01782400
+"""
+        ts_xyz_dict = check_xyz_dict(ts_coords)
+        symbols = ts_xyz_dict['symbols']
+        ts_dmat = xyz_to_dmat(ts_xyz_dict)
+        adjlist = split.get_adjlist_from_dmat(dmat=ts_dmat, symbols=symbols, h=4, a=7, b=2) # b is incorrect chemically
+        self.assertEqual(adjlist, {0: [1, 3], 1: [0, 2], 2: [1, 5, 6, 4], 3: [0], 5: [2], 6: [2], 4: [7, 2], 7: [4]})
+
+        # adjlist_opt = split.optimized_get_adjlist_from_dmat(dmat=ts_dmat, symbols=symbols, h=4, a=7, b=2)
+        # self.assertEqual(adjlist_opt, adjlist)
 
         xyz = """ C                 -3.80799396    1.05904061    0.12143410
                   H                 -3.75776386    0.09672979   -0.34366835
@@ -71,6 +79,8 @@ class TestTSSplit(unittest.TestCase):
                           12: [10, 13],
                           13: [12],
                           11: [7, 10]})
+      
+
 
     def test_iterative_dfs(self):
         """Test iterative_dfs"""
