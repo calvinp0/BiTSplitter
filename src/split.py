@@ -2,22 +2,22 @@
 TS Split
 """
 
-from typing import Dict, List, Tuple, Union, Optional
-import numpy as np
 from collections import deque
+from typing import Dict, List, Optional, Tuple, Union
 
+import numpy as np
 from arc.common import SINGLE_BOND_LENGTH
-from arc.species.converter import xyz_to_dmat, translate_to_center_of_mass
-
+from arc.species.converter import translate_to_center_of_mass, xyz_to_dmat
 
 MAX_LENGTH = 3.0
 
 
-def get_group_xyzs_and_key_indices_from_ts(xyz: dict,
-                                           a: int,
-                                           b: int,
-                                           h: int,
-                                           ) -> Tuple[dict, dict, dict]:
+def get_group_xyzs_and_key_indices_from_ts(
+    xyz: dict,
+    a: int,
+    b: int,
+    h: int,
+) -> Tuple[dict, dict, dict]:
     """
     Get the two corresponding XYZs of groups in an H abstraction TS based on the H atom being abstracted.
 
@@ -36,13 +36,19 @@ def get_group_xyzs_and_key_indices_from_ts(xyz: dict,
     g1, g2 = divide_h_abs_ts_int_groups(xyz, a, b, h)
     g1_xyz, g1_map = split_xyz_by_indices(xyz=xyz, indices=g1)
     g2_xyz, g2_map = split_xyz_by_indices(xyz=xyz, indices=g2)
-    index_dict = {'g1_a': g1_map[a], 'g1_h': g1_map[h], 'g2_a': g2_map[b], 'g2_h': g2_map[h]}
+    index_dict = {
+        "g1_a": g1_map[a],
+        "g1_h": g1_map[h],
+        "g2_a": g2_map[b],
+        "g2_h": g2_map[h],
+    }
     return g1_xyz, g2_xyz, index_dict
 
 
-def split_xyz_by_indices(xyz: dict,
-                         indices: List[int],
-                         ) -> Tuple[dict, Dict[int, int]]:
+def split_xyz_by_indices(
+    xyz: dict,
+    indices: List[int],
+) -> Tuple[dict, Dict[int, int]]:
     """
     Split an XYZ dictionary by indices.
     Also, map the indices in to_map_indices to the new indices in the returned XYZ.
@@ -57,12 +63,18 @@ def split_xyz_by_indices(xyz: dict,
           - The new indices of the atoms in to_map_indices in the returned XYZ. Keys are the original indices.
     """
     new_xyz = dict()
-    new_xyz['symbols'] = tuple(symbol for i, symbol in enumerate(xyz['symbols']) if i in indices)
-    new_xyz['isotopes'] = tuple(isotope for i, isotope in enumerate(xyz['isotopes']) if i in indices)
-    new_xyz['coords'] = tuple(coord for i, coord in enumerate(xyz['coords']) if i in indices)
+    new_xyz["symbols"] = tuple(
+        symbol for i, symbol in enumerate(xyz["symbols"]) if i in indices
+    )
+    new_xyz["isotopes"] = tuple(
+        isotope for i, isotope in enumerate(xyz["isotopes"]) if i in indices
+    )
+    new_xyz["coords"] = tuple(
+        coord for i, coord in enumerate(xyz["coords"]) if i in indices
+    )
     mapped_index = 0
     map_ = dict()
-    for i in range(len(xyz['symbols'])):
+    for i in range(len(xyz["symbols"])):
         if i in indices:
             map_[i] = mapped_index
             mapped_index += 1
@@ -70,29 +82,31 @@ def split_xyz_by_indices(xyz: dict,
     return new_xyz, map_
 
 
-def divide_h_abs_ts_int_groups(xyz: dict,
-                               a: int,
-                               b: int,
-                               h: int,
-                               ) -> Tuple[List[int], List[int]]:
+def divide_h_abs_ts_int_groups(
+    xyz: dict,
+    a: int,
+    b: int,
+    h: int,
+) -> Tuple[List[int], List[int]]:
     """
     Divide the atoms in the TS into two groups based on the H atom being abstracted.
     Get the indices of the atoms in the two groups, each includes the abstracted H (so R1H, R2H).
     """
     dmat = xyz_to_dmat(xyz)
-    symbols = xyz['symbols']
+    symbols = xyz["symbols"]
     adjlist = get_adjlist_from_dmat(dmat, symbols, h, a, b)
     g1 = iterative_dfs(adjlist, start=a, border=h)
     g2 = iterative_dfs(adjlist, start=b, border=h)
     return g1, g2
 
 
-def get_adjlist_from_dmat(dmat: Union[np.ndarray, list],
-                          symbols: Tuple[str, ...],
-                          h: Optional[int] = None,
-                          a: Optional[int] = None,
-                          b: Optional[int] = None,
-                          ) -> Dict[int, List[int]]:
+def get_adjlist_from_dmat(
+    dmat: Union[np.ndarray, list],
+    symbols: Tuple[str, ...],
+    h: Optional[int] = None,
+    a: Optional[int] = None,
+    b: Optional[int] = None,
+) -> Dict[int, List[int]]:
     """
     Get an adjacency list from a DMat.
 
@@ -140,42 +154,6 @@ def get_adjlist_from_dmat(dmat: Union[np.ndarray, list],
         adjlist[b].append(h)
         return adjlist
 
-# def optimized_get_adjlist_from_dmat(dmat: Union[np.ndarray, list],
-#                                         symbols: Tuple[str, ...],
-#     h: Optional[int] = None,
-#     a: Optional[int] = None,
-#     b: Optional[int] = None,
-# ) -> Dict[int, List[int]]:
-#     """
-#     Optimized function to get adjacency list from distance matrix.
-#     """
-#     from collections import defaultdict
-#     adjlist = defaultdict(list)
-#     num_atoms = len(symbols)
-
-#     # Create a bonded mask: bonded_pairs[i, j] is True if atoms i and j are bonded
-#     bonded_mask = (dmat <= MAX_LENGTH)
-
-#     # Use NumPy broadcasting to apply the `bonded` function elementwise
-#     bonded_check = np.vectorize(
-#         lambda i, j: bonded(dmat[i][j], symbols[i], symbols[j])
-#     )
-#     bonded_pairs = bonded_mask & bonded_check(
-#         *np.indices(dmat.shape)  # Generate all (i, j) indices
-#     )
-
-#     # Process general case
-#     for atom_1, atom_2 in zip(*np.where(bonded_pairs)):
-#         if atom_1 != atom_2:  # Avoid self-loops
-#             adjlist[atom_1].append(atom_2)
-
-#     # Handle specific case of h, a, b
-#     if h is not None and a is not None and b is not None:
-#         adjlist[h] = [a, b]
-#         adjlist[a].append(h)
-#         adjlist[b].append(h)
-
-#     return dict(adjlist)
 
 def bonded(distance: float, s1: str, s2: str) -> bool:
     """
@@ -189,8 +167,10 @@ def bonded(distance: float, s1: str, s2: str) -> bool:
     Returns:
         bool: Whether the atoms are bonded.
     """
-    bond_key = f'{s1}_{s2}'
-    ref_dist = SINGLE_BOND_LENGTH.get(bond_key, None) or SINGLE_BOND_LENGTH.get(f'{s2}_{s1}', None)
+    bond_key = f"{s1}_{s2}"
+    ref_dist = SINGLE_BOND_LENGTH.get(bond_key, None) or SINGLE_BOND_LENGTH.get(
+        f"{s2}_{s1}", None
+    )
     if ref_dist is None:
         return False
     if distance <= ref_dist * 1.1:  # todo: test & magic number, make CONSTANT
@@ -198,10 +178,11 @@ def bonded(distance: float, s1: str, s2: str) -> bool:
     return False
 
 
-def iterative_dfs(adjlist: Dict[int, List[int]],
-                  start: int,
-                  border: int,
-                  ) -> List[int]:
+def iterative_dfs(
+    adjlist: Dict[int, List[int]],
+    start: int,
+    border: int,
+) -> List[int]:
     """
     A depth first search (DFS) graph traversal algorithm to determine indices that belong to a subgroup of the graph.
     The subgroup is being explored from the key atom and will not pass the border atom.
