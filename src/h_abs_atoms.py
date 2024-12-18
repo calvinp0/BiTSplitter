@@ -1,6 +1,23 @@
+import re
+
 import numpy as np
-from arc.species.converter import str_to_xyz, xyz_to_dmat
 import pandas as pd
+from arc.species.converter import xyz_to_dmat
+
+
+def extract_digits(s: str) -> int:
+    """
+    Extract the first integer from a string
+
+    Args:
+        s (str): The string to extract the integer from
+
+    Returns:
+        int: The first integer in the string
+
+    """
+    return int(re.sub(r"[^\d]", "", s))
+
 
 def convert_xyz_to_df(xyz: dict) -> pd.DataFrame:
     """
@@ -19,6 +36,7 @@ def convert_xyz_to_df(xyz: dict) -> pd.DataFrame:
 
     return pd.DataFrame(ts_dmat, columns=symbol_enum, index=symbol_enum)
 
+
 def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
     """
     Get the donating/accepting hydrogen atom, and the two heavy atoms that are bonded to it
@@ -28,72 +46,174 @@ def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
 
     Returns:
         dict: The hydrogen atom and the two heavy atoms. The keys are 'H', 'A', 'B'
-
     """
-    # Ensure there are at least 3 atoms in the TS
-    if len(dataframe) < 3:
-        raise ValueError("TS must contain at least 3 atoms.")
-    if len(dataframe) == 3 and dataframe.index.str.startswith("H").sum() == 2:
-        # Identify the heavy atom
-        heavy_atom = dataframe.index[~dataframe.index.str.startswith("H")][0]  # Should be the only heavy atom
-        hydrogen_atoms = dataframe.index[dataframe.index.str.startswith("H")]  # List of hydrogen atoms
 
-        # Get distances from the heavy atom to the two hydrogens
-        distances_to_hydrogens = dataframe.loc[heavy_atom, hydrogen_atoms]
+    closest_atoms = {}
+    for index, row in dataframe.iterrows():
 
-        # Select the hydrogen with the smallest distance to the heavy atom as `H`
-        hydrogen_with_min_distance = distances_to_hydrogens.idxmin()
+        row[index] = np.inf
+        closest = row.nsmallest(2).index.tolist()
+        closest_atoms[index] = closest
 
-        # The other hydrogen becomes `B`
-        other_hydrogen = hydrogen_atoms[hydrogen_atoms != hydrogen_with_min_distance][0]
+    hydrogen_keys = [key for key in dataframe.index if key.startswith("H")]
+    condition_occurrences = []
 
-        return {"H": hydrogen_with_min_distance, "A": heavy_atom, "B": other_hydrogen}
+    for hydrogen_key in hydrogen_keys:
+        atom_neighbours = closest_atoms[hydrogen_key]
+        is_heavy_present = any(
+            atom for atom in closest_atoms if not atom.startswith("H")
+        )
+        if_hydrogen_present = any(
+            atom
+            for atom in closest_atoms
+            if atom.startswith("H") and atom != hydrogen_key
+        )
 
-    elif len(dataframe) == 4 and dataframe.index.str.startswith("H").sum() == 3:
-        # Identify the heavy atom
-        heavy_atom = dataframe.index[~dataframe.index.str.startswith("H")][0]  # Should be the only heavy atom
-        hydrogen_atoms = dataframe.index[dataframe.index.str.startswith("H")]  # List of hydrogen atoms
+        if is_heavy_present and if_hydrogen_present:
+            # Store the details of this occurrence
+            condition_occurrences.append(
+                {"H": hydrogen_key, "A": atom_neighbours[0], "B": atom_neighbours[1]}
+            )
 
-        # Remove hydrogens from columns and the heavy atom from rows
-        filtered_df = dataframe.loc[hydrogen_atoms, [heavy_atom]]
+    # Check if the condition was met
+    if condition_occurrences:
+        if len(condition_occurrences) > 1:
+            # Store distances to decide which occurrence to use
+            occurrence_distances = []
+            for occurrence in condition_occurrences:
+                # Calculate the sum of distances to the two heavy atoms
+                hydrogen_key = f"{occurrence['H']}"
+                heavy_atoms = [f"{occurrence['A']}", f"{occurrence['B']}"]
+                try:
+                    distances = dataframe.loc[hydrogen_key, heavy_atoms].sum()
+                    occurrence_distances.append((occurrence, distances))
+                except KeyError as e:
+                    print(f"Error accessing distances for occurrence {occurrence}: {e}")
 
-        # Sort the distances from the heavy atom to all hydrogens
-        sorted_distances = filtered_df[heavy_atom].sort_values()
-
-        # Select the hydrogen with the second furthest distance
-        hydrogen_with_max_distance = sorted_distances.index[-2]
-
-        # Reset the DataFrame back to the original to find the other hydrogen (`B`)
-        remaining_hydrogens = hydrogen_atoms[hydrogen_atoms != hydrogen_with_max_distance]
-        filtered_hydrogens_df = dataframe.loc[[hydrogen_with_max_distance], remaining_hydrogens]
-
-        # Find the hydrogen closest to the selected hydrogen (`H`)
-        closest_hydrogen = filtered_hydrogens_df.idxmin(axis=1).iloc[0]
-
-        return {"H": hydrogen_with_max_distance, "A": heavy_atom, "B": closest_hydrogen} 
-
+            # Select the occurrence with the smallest distance
+            best_occurrence = min(occurrence_distances, key=lambda x: x[1])[0]
+            return {
+                "H": extract_digits(best_occurrence["H"]),
+                "A": extract_digits(best_occurrence["A"]),
+                "B": extract_digits(best_occurrence["B"]),
+            }
     else:
 
-        # Filter the DataFrame for hydrogen rows and non-hydrogen columns
-        hydrogen_rows = dataframe.index[dataframe.index.str.startswith("H")]
-        heavy_atom_columns = dataframe.columns[~dataframe.columns.str.startswith("H")]
+        # Check the all the hydrogen atoms, and see the closest two heavy atoms and aggregate their distances to determine which Hyodrogen atom has the lowest distance aggregate
+        min_distance = np.inf
+        selected_hydrogen = None
+        selected_heavy_atoms = None
 
-        filtered_df = dataframe.loc[hydrogen_rows, heavy_atom_columns]
+        for hydrogen_key in hydrogen_keys:
+            atom_neighbours = closest_atoms[hydrogen_key]
+            heavy_atoms = [atom for atom in atom_neighbours if not atom.startswith("H")]
 
-        # Find the hydrogen atom with the smallest bond distance to a heavy atom
-        min_distances = filtered_df.min(axis=1)
-        min_distances = min_distances[min_distances <= 2.0]
-        hydrogen_with_min_distance = min_distances.idxmax()
-        min_distance_column = filtered_df.loc[hydrogen_with_min_distance].idxmin()
+            if len(heavy_atoms) < 2:
+                continue
 
-        # Handle cases with multiple heavy atoms
-        remaining_columns = dataframe.columns[
-            ~dataframe.columns.isin([hydrogen_with_min_distance, min_distance_column])
+            distances = dataframe.loc[hydrogen_key, heavy_atoms[:2]].sum()
+            if distances < min_distance:
+                min_distance = distances
+                selected_hydrogen = hydrogen_key
+                selected_heavy_atoms = heavy_atoms
+
+        if selected_hydrogen:
+            return {
+                "H": extract_digits(selected_hydrogen),
+                "A": extract_digits(selected_heavy_atoms[0]),
+                "B": extract_digits(selected_heavy_atoms[1]),
+            }
+        else:
+            raise ValueError("No valid hydrogen atom found.")
+
+
+def find_valid_atoms(hydrogen_with_min_distance, min_distances, filtered_df, dataframe):
+    """
+    Recursively find a valid hydrogen atom and its second closest atom that meets the distance criteria.
+
+    Args:
+        hydrogen_with_min_distance (str): The current hydrogen atom under consideration.
+        min_distances (pd.Series): Series containing minimum distances of hydrogen atoms to heavy atoms.
+        filtered_df (pd.DataFrame): Filtered dataframe of hydrogen rows and heavy atom columns.
+        dataframe (pd.DataFrame): The full distance dataframe.
+
+    Returns:
+        tuple: Valid hydrogen atom and its second closest atom.
+    """
+    min_distance_column = filtered_df.loc[hydrogen_with_min_distance].idxmin()
+    remaining_columns = dataframe.columns[
+        ~dataframe.columns.isin([hydrogen_with_min_distance, min_distance_column])
+    ]
+    remaining_df = dataframe.loc[[hydrogen_with_min_distance], remaining_columns]
+    second_closest_atom = remaining_df.idxmin(axis=1).iloc[0]
+
+    if "H" in second_closest_atom:
+        # Check their distances to the hydrogen atom
+        distances_to_second_closest_atom = dataframe.loc[
+            hydrogen_with_min_distance, second_closest_atom
         ]
-        remaining_df = dataframe.loc[[hydrogen_with_min_distance], remaining_columns]
-        second_closest_atom = remaining_df.idxmin(axis=1).iloc[0]
+        if distances_to_second_closest_atom > 1.7:
+            # Remove the current hydrogen atom and retry
+            min_distances = min_distances.drop(hydrogen_with_min_distance)
 
-    return {"H": hydrogen_with_min_distance, "A": min_distance_column, "B": second_closest_atom}
+            # Terminate if no more hydrogen atoms remain
+            if min_distances.empty:
+                raise ValueError("No valid hydrogen atom found.")
+
+            # Retry with the next hydrogen atom
+            hydrogen_with_min_distance = min_distances.idxmin()
+            return find_valid_atoms(
+                hydrogen_with_min_distance, min_distances, filtered_df, dataframe
+            )
+
+    return hydrogen_with_min_distance, min_distance_column, second_closest_atom
+
+
+def pull_atoms_closer(xyz, h_index, a_index, target_distance=1.0):
+    """
+    Adjusts the position of atom at h_index to be closer to atom at a_index by setting the distance between them to target_distance.
+
+    Parameters:
+    - xyz (dict): A dictionary containing atomic coordinates with key 'coords'.
+                  Example: {'coords': np.array([[x1, y1, z1], [x2, y2, z2], ...])}
+    - h_index (int): Index of the atom to be moved closer.
+    - a_index (int): Index of the reference atom.
+    - target_distance (float): Desired distance between the two atoms in angstroms (default is 1.0).
+
+    Returns:
+    - dict: Updated xyz dictionary with modified coordinates.
+    """
+    # Extract coordinates of the two atoms
+    h_coords = np.array(xyz["coords"][h_index])
+    a_coords = np.array(xyz["coords"][a_index])
+
+    # Calculate the vector from a_index to h_index
+    vector = h_coords - a_coords
+    distance = np.linalg.norm(vector)
+
+    if distance == 0:
+        raise ValueError(
+            "The two atoms are at the same position; direction is undefined."
+        )
+
+    # Normalize the vector and scale it to the target distance
+    unit_vector = vector / distance
+    new_vector = unit_vector * target_distance
+
+    # Calculate the new coordinates for h_index
+    new_h_coords = a_coords + new_vector
+
+    # Update the coordinates in the xyz dictionary
+    updated_xyz = xyz.copy()
+    updated_xyz["coords"] = [
+        list(coord) for coord in xyz["coords"]
+    ]  # Ensure it's mutable
+    updated_xyz["coords"][
+        h_index
+    ] = new_h_coords.tolist()  # Convert back to list if necessary
+
+    return updated_xyz
+
 
 def batch_process_h_abs_atoms(xyz_list: list) -> list:
     """
