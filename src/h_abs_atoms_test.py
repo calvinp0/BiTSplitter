@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 from arc.species.converter import str_to_xyz
 
-from h_abs_atoms import convert_xyz_to_df, get_h_abs_atoms, pull_atoms_closer
+from h_abs_atoms import convert_xyz_to_df, get_h_abs_atoms, pull_atoms_closer, get_element_symbol
 
 arc_path = "~/code/ARC"
 rmg_path = "~/code/RMG-Py"
@@ -18,6 +18,18 @@ class TestHAbAtom(unittest.TestCase):
     """
     Contains unit tests for identifying the molecules that are partaking in the hydrogen abstraction reaction
     """
+    def test_get_element_symbol(self):
+        """
+        Test the extraction of the element symbol from an atom label
+        """
+        self.assertEqual(get_element_symbol("C0"), "C")
+        self.assertEqual(get_element_symbol("C"), "C")
+        self.assertEqual(get_element_symbol("H"), "H")
+        self.assertEqual(get_element_symbol("H1"), "H")
+        self.assertEqual(get_element_symbol("O2"), "O")
+        self.assertEqual(get_element_symbol("O"), "O")
+        self.assertEqual(get_element_symbol("S14"), "S")
+
 
     def test_convert_xyz_to_df(self):
         """
@@ -289,7 +301,7 @@ class TestHAbAtom(unittest.TestCase):
         ts_3_df = convert_xyz_to_df(ts_3_xyz)
 
         ts_3_results = get_h_abs_atoms(ts_3_df)
-        self.assertEqual(ts_3_results, {"H": 2, "A": 1, "B": 0})
+        self.assertEqual(ts_3_results, {"H": 2, "A": 1, "B": 0, "C": None, "D": None})
 
         ts_4 = [
             "H       0.00000000    1.92749700    0.41568400",
@@ -301,7 +313,7 @@ class TestHAbAtom(unittest.TestCase):
         ts_4_xyz = str_to_xyz(ts_4)
         ts_4_df = convert_xyz_to_df(ts_4_xyz)
         ts_4_results = get_h_abs_atoms(ts_4_df)
-        self.assertEqual(ts_4_results, {"H": 2, "A": 0, "B": 1})
+        self.assertEqual(ts_4_results, {"H": 2, "A": 0, "B": 1, "C": None, "D": 3})
 
         ts_5 = [
             "Cl      0.00000000    0.76620700    0.27089500",
@@ -315,7 +327,7 @@ class TestHAbAtom(unittest.TestCase):
         ts_5_xyz = str_to_xyz(ts_5)
         ts_5_df = convert_xyz_to_df(ts_5_xyz)
         ts_5_results = get_h_abs_atoms(ts_5_df)
-        self.assertEqual(ts_5_results, {"H": 2, "A": 0, "B": 1})
+        self.assertEqual(ts_5_results, {"H": 2, "A": 0, "B": 1, "C": None, "D": 3})
 
         ts_6 = [
             "C       0.00000000   -0.07902300   -1.21873400",
@@ -330,7 +342,7 @@ class TestHAbAtom(unittest.TestCase):
         ts_6_xyz = str_to_xyz(ts_6)
         ts_6_df = convert_xyz_to_df(ts_6_xyz)
         ts_6_results = get_h_abs_atoms(ts_6_df)
-        self.assertEqual(ts_6_results, {"H": 5, "A": 6, "B": 1})
+        self.assertEqual(ts_6_results, {"H": 5, "A": 6, "B": 1, "C": None, "D": 0})
 
         ts7 = """C      -0.00395600   -0.04326400   -1.40455000
             C      -0.00845300   -0.09246500   -0.20543800
@@ -344,7 +356,7 @@ class TestHAbAtom(unittest.TestCase):
         ts7_xyz = str_to_xyz(ts7)
         ts7_df = convert_xyz_to_df(ts7_xyz)
         ts7_results = get_h_abs_atoms(ts7_df)
-        self.assertEqual(ts7_results, {"H": 4, "A": 7, "B": 2})
+        self.assertEqual(ts7_results, {"H": 4, "A": 7, "B": 2, "C": None, "D": 1})
 
         ts_8 = [
             "C      -0.09221400   -1.06679200   -0.03100200",
@@ -380,7 +392,7 @@ class TestHAbAtom(unittest.TestCase):
         ts_8_xyz = str_to_xyz(ts_8)
         ts_8_df = convert_xyz_to_df(ts_8_xyz)
         ts_8_results = get_h_abs_atoms(ts_8_df)
-        self.assertEqual(ts_8_results, {"H": 21, "A": 14, "B": 0})
+        self.assertEqual(ts_8_results, {"H": 21, "A": 14, "B": 0, "C": 15, "D": 1})
 
         ts_89 = [
             "C      -0.00362700   -0.77718600   -1.12561500",
@@ -394,4 +406,4 @@ class TestHAbAtom(unittest.TestCase):
         ts_89_xyz = str_to_xyz(ts_89)
         ts_89_df = convert_xyz_to_df(ts_89_xyz)
         ts_89_results = get_h_abs_atoms(ts_89_df)
-        self.assertEqual(ts_89_results, {"H": 4, "A": 1, "B": 5})
+        self.assertEqual(ts_89_results, {"H": 4, "A": 1, "B": 5, "C": 0, "D": None})
