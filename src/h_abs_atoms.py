@@ -1,8 +1,42 @@
 import re
+from typing import Tuple, Dict, List, Set
+
 
 import numpy as np
 import pandas as pd
 from arc.species.converter import xyz_to_dmat
+
+from split import bonded, get_adjlist_from_dmat
+
+ATOMIC_MASSES = {'H' : 1.008,'HE' : 4.003, 'LI' : 6.941, 'BE' : 9.012,\
+                 'B' : 10.811, 'C' : 12.011, 'N' : 14.007, 'O' : 15.999,\
+                 'F' : 18.998, 'NE' : 20.180, 'NA' : 22.990, 'MG' : 24.305,\
+                 'AL' : 26.982, 'SI' : 28.086, 'P' : 30.974, 'S' : 32.066,\
+                 'CL' : 35.453, 'AR' : 39.948, 'K' : 39.098, 'CA' : 40.078,\
+                 'SC' : 44.956, 'TI' : 47.867, 'V' : 50.942, 'CR' : 51.996,\
+                 'MN' : 54.938, 'FE' : 55.845, 'CO' : 58.933, 'NI' : 58.693,\
+                 'CU' : 63.546, 'ZN' : 65.38, 'GA' : 69.723, 'GE' : 72.631,\
+                 'AS' : 74.922, 'SE' : 78.971, 'BR' : 79.904, 'KR' : 84.798,\
+                 'RB' : 84.468, 'SR' : 87.62, 'Y' : 88.906, 'ZR' : 91.224,\
+                 'NB' : 92.906, 'MO' : 95.95, 'TC' : 98.907, 'RU' : 101.07,\
+                 'RH' : 102.906, 'PD' : 106.42, 'AG' : 107.868, 'CD' : 112.414,\
+                 'IN' : 114.818, 'SN' : 118.711, 'SB' : 121.760, 'TE' : 126.7,\
+                 'I' : 126.904, 'XE' : 131.294, 'CS' : 132.905, 'BA' : 137.328,\
+                 'LA' : 138.905, 'CE' : 140.116, 'PR' : 140.908, 'ND' : 144.243,\
+                 'PM' : 144.913, 'SM' : 150.36, 'EU' : 151.964, 'GD' : 157.25,\
+                 'TB' : 158.925, 'DY': 162.500, 'HO' : 164.930, 'ER' : 167.259,\
+                 'TM' : 168.934, 'YB' : 173.055, 'LU' : 174.967, 'HF' : 178.49,\
+                 'TA' : 180.948, 'W' : 183.84, 'RE' : 186.207, 'OS' : 190.23,\
+                 'IR' : 192.217, 'PT' : 195.085, 'AU' : 196.967, 'HG' : 200.592,\
+                 'TL' : 204.383, 'PB' : 207.2, 'BI' : 208.980, 'PO' : 208.982,\
+                 'AT' : 209.987, 'RN' : 222.081, 'FR' : 223.020, 'RA' : 226.025,\
+                 'AC' : 227.028, 'TH' : 232.038, 'PA' : 231.036, 'U' : 238.029,\
+                 'NP' : 237, 'PU' : 244, 'AM' : 243, 'CM' : 247, 'BK' : 247,\
+                 'CT' : 251, 'ES' : 252, 'FM' : 257, 'MD' : 258, 'NO' : 259,\
+                 'LR' : 262, 'RF' : 261, 'DB' : 262, 'SG' : 266, 'BH' : 264,\
+                 'HS' : 269, 'MT' : 268, 'DS' : 271, 'RG' : 272, 'CN' : 285,\
+                 'NH' : 284, 'FL' : 289, 'MC' : 288, 'LV' : 292, 'TS' : 294,\
+                 'OG' : 294}
 
 
 def extract_digits(s: str) -> int:
@@ -17,6 +51,96 @@ def extract_digits(s: str) -> int:
 
     """
     return int(re.sub(r"[^\d]", "", s))
+
+def get_element_symbol(atom_label: str) -> str:
+    """
+    Get the element symbol from an atom label
+
+    Args:
+        atom_label (str): The atom label
+
+    Returns:
+        str: The element symbol
+    """
+    match = re.match(r"^([A-Za-z]{1,2})", atom_label)
+    if not match:
+        raise ValueError(f"Could not extract element symbol from {atom_label}")
+    return match.group(1)
+
+
+def chain_weight(atom_idx: int, adjacency: Dict[int, List[int]], symbols: Tuple[str, ...], visited: Set[int] = None) -> float:
+    """
+    Recursively calculate the weight of a chain of atoms
+    """
+    if visited is None:
+        visited = set()
+    if atom_idx in visited:
+        return 0.0
+
+    visited.add(atom_idx)
+    # e.g. symbols[3] == 'C'
+    symbol = symbols[atom_idx]
+    mass_here = ATOMIC_MASSES.get(symbol, 0.0)
+
+    total = mass_here
+    for nb in adjacency.get(atom_idx, []):
+        if nb not in visited and not symbols[nb].startswith('H'):
+            total += chain_weight(nb, adjacency, symbols, visited)
+    return total
+
+
+def get_best_heavy_neighbour(atom_idx: int, adjacency: Dict[int, List[int]], symbols: Tuple[str, ...], exclude_idx: int = None) -> int:
+    """
+    Among all neighbors of `atom_idx` in adjacency, pick the neighbor
+    whose chain weight is largest, provided that neighbor is "heavy" (i.e. not 'H').
+
+    Args:
+        atom_idx (int): The atom index.
+        adjacency (dict[int, list[int]]): The adjacency dict.
+        symbols (tuple[str, ...]): The element symbols.
+        exclude_idx (int, optional): If given, skip this neighbor.
+
+    Returns:
+        int or None: The index of the best heavy neighbor (or None if none).
+    """
+
+    candidates = []
+    hydrogen_candidates = []
+    for nb_idx in adjacency.get(atom_idx, []):
+        if nb_idx == exclude_idx:
+            continue
+        # e.g. if symbols[nb_idx] == 'H', skip
+        if not symbols[nb_idx].startswith('H'):
+            candidates.append(nb_idx)
+        elif symbols[nb_idx].startswith('H'):
+            hydrogen_candidates.append(nb_idx)
+
+    if candidates:
+        best_candidate = None
+        best_weight = -1.0
+        for cand_idx in candidates:
+            w = chain_weight(cand_idx, adjacency, symbols, visited={atom_idx})
+            if w > best_weight:
+                best_weight = w
+                best_candidate = cand_idx
+            elif w == best_weight:
+                # Pick the candidate that is the heaviest atom
+                if ATOMIC_MASSES.get(symbols[cand_idx], 0.0) > ATOMIC_MASSES.get(symbols[best_candidate], 0.0):
+                    best_candidate = cand_idx
+        return best_candidate
+
+    elif hydrogen_candidates:
+        return hydrogen_candidates[0]
+    elif not candidates and not hydrogen_candidates:
+        return None
+
+def _get_next_heavy_neighbour(adjacency: dict, A: str, H: str, B: str, symbols: list) -> str:
+
+    C = get_best_heavy_neighbour(A, adjacency, symbols=symbols, exclude_idx=H)
+    D = get_best_heavy_neighbour(B, adjacency, symbols=symbols, exclude_idx=H)
+
+    return C, D
+
 
 
 def convert_xyz_to_df(xyz: dict) -> pd.DataFrame:
@@ -47,7 +171,12 @@ def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
     Returns:
         dict: The hydrogen atom and the two heavy atoms. The keys are 'H', 'A', 'B'
     """
+    symbols = [get_element_symbol(symbol) for symbol in dataframe.columns]
+    adjacency = get_adjlist_from_dmat(dataframe.values, symbols)
 
+    # -------------------------------------------------------------------
+    # 1. Build a dictionary with each atom's two closest neighbors
+    # -------------------------------------------------------------------
     closest_atoms = {}
     for index, row in dataframe.iterrows():
 
@@ -55,19 +184,28 @@ def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
         closest = row.nsmallest(2).index.tolist()
         closest_atoms[index] = closest
 
+    # -------------------------------------------------------------------
+    # 2. Identify which atoms are hydrogen
+    # -------------------------------------------------------------------
     hydrogen_keys = [key for key in dataframe.index if key.startswith("H")]
     condition_occurrences = []
 
+    # -------------------------------------------------------------------
+    # 3. Gather valid H-A-B occurrences
+    # -------------------------------------------------------------------
     for hydrogen_key in hydrogen_keys:
         atom_neighbours = closest_atoms[hydrogen_key]
         is_heavy_present = any(
-            atom for atom in closest_atoms if not atom.startswith("H")
+            atom for atom in atom_neighbours if not atom.startswith("H")
         )
-        if_hydrogen_present = any(
-            atom
-            for atom in closest_atoms
-            if atom.startswith("H") and atom != hydrogen_key
-        )
+        # if_hydrogen_present = any(
+        #     atom
+        #     for atom in atom_neighbours
+        #     if atom.startswith("H") and atom != hydrogen_key
+        # )
+        if_hydrogen_present = (
+        atom_neighbours[0].startswith("H") and atom_neighbours[0] != hydrogen_key
+    )
 
         if is_heavy_present and if_hydrogen_present:
             # Store the details of this occurrence
@@ -92,10 +230,22 @@ def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
 
             # Select the occurrence with the smallest distance
             best_occurrence = min(occurrence_distances, key=lambda x: x[1])[0]
+            C, D = _get_next_heavy_neighbour(adjacency, extract_digits(best_occurrence["A"]), extract_digits(best_occurrence["H"]), extract_digits(best_occurrence["B"]), symbols)
             return {
                 "H": extract_digits(best_occurrence["H"]),
                 "A": extract_digits(best_occurrence["A"]),
                 "B": extract_digits(best_occurrence["B"]),
+                "C": C,
+                "D": D
+            }
+        else:
+            C, D = _get_next_heavy_neighbour(adjacency, condition_occurrences[0]["A"], condition_occurrences[0]["H"], condition_occurrences[0]["B"], symbols)
+            return {
+                "H": extract_digits(condition_occurrences[0]["H"]),
+                "A": extract_digits(condition_occurrences[0]["A"]),
+                "B": extract_digits(condition_occurrences[0]["B"]),
+                "C": C,
+                "D": D
             }
     else:
 
@@ -118,55 +268,16 @@ def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
                 selected_heavy_atoms = heavy_atoms
 
         if selected_hydrogen:
+            C, D = _get_next_heavy_neighbour(adjacency, extract_digits(selected_heavy_atoms[0]), extract_digits(selected_hydrogen), extract_digits(selected_heavy_atoms[1]), symbols)
             return {
                 "H": extract_digits(selected_hydrogen),
                 "A": extract_digits(selected_heavy_atoms[0]),
                 "B": extract_digits(selected_heavy_atoms[1]),
+                "C": C,
+                "D": D
             }
         else:
             raise ValueError("No valid hydrogen atom found.")
-
-
-def find_valid_atoms(hydrogen_with_min_distance, min_distances, filtered_df, dataframe):
-    """
-    Recursively find a valid hydrogen atom and its second closest atom that meets the distance criteria.
-
-    Args:
-        hydrogen_with_min_distance (str): The current hydrogen atom under consideration.
-        min_distances (pd.Series): Series containing minimum distances of hydrogen atoms to heavy atoms.
-        filtered_df (pd.DataFrame): Filtered dataframe of hydrogen rows and heavy atom columns.
-        dataframe (pd.DataFrame): The full distance dataframe.
-
-    Returns:
-        tuple: Valid hydrogen atom and its second closest atom.
-    """
-    min_distance_column = filtered_df.loc[hydrogen_with_min_distance].idxmin()
-    remaining_columns = dataframe.columns[
-        ~dataframe.columns.isin([hydrogen_with_min_distance, min_distance_column])
-    ]
-    remaining_df = dataframe.loc[[hydrogen_with_min_distance], remaining_columns]
-    second_closest_atom = remaining_df.idxmin(axis=1).iloc[0]
-
-    if "H" in second_closest_atom:
-        # Check their distances to the hydrogen atom
-        distances_to_second_closest_atom = dataframe.loc[
-            hydrogen_with_min_distance, second_closest_atom
-        ]
-        if distances_to_second_closest_atom > 1.7:
-            # Remove the current hydrogen atom and retry
-            min_distances = min_distances.drop(hydrogen_with_min_distance)
-
-            # Terminate if no more hydrogen atoms remain
-            if min_distances.empty:
-                raise ValueError("No valid hydrogen atom found.")
-
-            # Retry with the next hydrogen atom
-            hydrogen_with_min_distance = min_distances.idxmin()
-            return find_valid_atoms(
-                hydrogen_with_min_distance, min_distances, filtered_df, dataframe
-            )
-
-    return hydrogen_with_min_distance, min_distance_column, second_closest_atom
 
 
 def pull_atoms_closer(xyz, h_index, a_index, target_distance=1.0):
