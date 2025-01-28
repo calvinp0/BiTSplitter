@@ -173,7 +173,7 @@ def bonded(distance: float, s1: str, s2: str) -> bool:
     )
     if ref_dist is None:
         return False
-    if distance <= ref_dist * 1.1:  # todo: test & magic number, make CONSTANT
+    if distance <= ref_dist * 1.115:  # todo: test & magic number, make CONSTANT
         return True
     return False
 
