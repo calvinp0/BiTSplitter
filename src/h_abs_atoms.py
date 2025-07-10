@@ -5,6 +5,10 @@ from typing import Tuple, Dict, List, Set
 import numpy as np
 import pandas as pd
 from arc.species.converter import xyz_to_dmat
+from arc.common import SINGLE_BOND_LENGTH
+
+### Changing H_H length from 1.0 to 0.74
+SINGLE_BOND_LENGTH["H_H"] = 0.74  # Å, this is the length of the H-H bond in H2
 
 from split import bonded, get_adjlist_from_dmat
 
@@ -280,48 +284,80 @@ def get_h_abs_atoms(dataframe: pd.DataFrame) -> dict:
             raise ValueError("No valid hydrogen atom found.")
 
 
-def pull_atoms_closer(xyz, h_index, a_index, target_distance=1.0):
+
+
+def pull_atoms_closer(
+    xyz, h_index, a_index, target_distance=1.0, tolerance=1.2
+):
     """
-    Adjusts the position of atom at h_index to be closer to atom at a_index by setting the distance between them to target_distance.
+    Adjust the position of the hydrogen at h_index so its distance to a_index matches:
+    - The average of sibling Hs bonded to a_index, or
+    - The SINGLE_BOND_LENGTH lookup for the pair, or
+    - target_distance as a final fallback.
 
     Parameters:
-    - xyz (dict): A dictionary containing atomic coordinates with key 'coords'.
-                  Example: {'coords': np.array([[x1, y1, z1], [x2, y2, z2], ...])}
-    - h_index (int): Index of the atom to be moved closer.
-    - a_index (int): Index of the reference atom.
-    - target_distance (float): Desired distance between the two atoms in angstroms (default is 1.0).
+    - xyz (dict): Dictionary with 'symbols', 'isotopes', and 'coords' (tuple of floats).
+    - h_index (int): Index of the hydrogen atom to adjust.
+    - a_index (int): Index of the heavy atom it should be bonded to.
+    - target_distance (float): Fallback distance if no siblings or no bond length is found.
+    - tolerance (float): Max distance (Å) to consider other hydrogens bonded to a_index (default 1.2 Å).
+    - SINGLE_BOND_LENGTH (dict): Dictionary of bond lengths by element pair (e.g., 'H_O': 0.96) - Provided in the script as global variable.
 
     Returns:
     - dict: Updated xyz dictionary with modified coordinates.
     """
-    # Extract coordinates of the two atoms
-    h_coords = np.array(xyz["coords"][h_index])
-    a_coords = np.array(xyz["coords"][a_index])
+    coords = np.array(xyz["coords"])
+    symbols = xyz["symbols"]
+    a_coords = coords[a_index]
+    a_symbol = symbols[a_index]
+    h_symbol = symbols[h_index]
 
-    # Calculate the vector from a_index to h_index
+    # Special case: If a_index is H, skip sibling search and just use bond lookup or fallback
+    if a_symbol == "H":
+        key1 = f"{h_symbol}_{a_symbol}"
+        key2 = f"{a_symbol}_{h_symbol}"
+        if SINGLE_BOND_LENGTH:
+            avg_distance = SINGLE_BOND_LENGTH.get(key1) or SINGLE_BOND_LENGTH.get(key2) or target_distance
+        else:
+            avg_distance = target_distance
+    else:
+        # Find sibling hydrogens connected to a_index (excluding h_index)
+        other_h_indices = []
+        for i, (coord, symbol) in enumerate(zip(coords, symbols)):
+            if i == h_index:
+                continue
+            if symbol == "H":
+                distance = np.linalg.norm(coord - a_coords)
+                if distance < tolerance:
+                    other_h_indices.append(i)
+
+        if other_h_indices:
+            avg_distance = np.mean([np.linalg.norm(coords[i] - a_coords) for i in other_h_indices])
+        else:
+            key1 = f"{h_symbol}_{a_symbol}"
+            key2 = f"{a_symbol}_{h_symbol}"
+            if SINGLE_BOND_LENGTH:
+                avg_distance = SINGLE_BOND_LENGTH.get(key1) or SINGLE_BOND_LENGTH.get(key2) or target_distance
+            else:
+                avg_distance = target_distance
+
+    # Move the hydrogen to the desired distance
+    h_coords = coords[h_index]
     vector = h_coords - a_coords
     distance = np.linalg.norm(vector)
 
     if distance == 0:
-        raise ValueError(
-            "The two atoms are at the same position; direction is undefined."
-        )
+        # Fallback arbitrary direction if atoms overlap
+        vector = np.array([1.0, 0.0, 0.0])
+        distance = 1.0
 
-    # Normalize the vector and scale it to the target distance
     unit_vector = vector / distance
-    new_vector = unit_vector * target_distance
+    new_h_coords = a_coords + unit_vector * avg_distance
 
-    # Calculate the new coordinates for h_index
-    new_h_coords = a_coords + new_vector
-
-    # Update the coordinates in the xyz dictionary
+    # Update the xyz dictionary
     updated_xyz = xyz.copy()
-    updated_xyz["coords"] = [
-        list(coord) for coord in xyz["coords"]
-    ]  # Ensure it's mutable
-    updated_xyz["coords"][
-        h_index
-    ] = new_h_coords.tolist()  # Convert back to list if necessary
+    updated_xyz["coords"] = [list(coord) for coord in coords]
+    updated_xyz["coords"][h_index] = new_h_coords.tolist()
 
     return updated_xyz
 

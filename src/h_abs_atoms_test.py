@@ -14,6 +14,8 @@ sys.path.append(os.path.expanduser((arc_path)))
 sys.path.append(os.path.expanduser((rmg_path)))
 
 
+
+
 class TestHAbAtom(unittest.TestCase):
     """
     Contains unit tests for identifying the molecules that are partaking in the hydrogen abstraction reaction
@@ -269,8 +271,8 @@ class TestHAbAtom(unittest.TestCase):
         updated_xyz_hh = pull_atoms_closer(
             test_extracted_xyz_from_ts_hh, h_index=0, a_index=1, target_distance=0.8
         )
-        self.assertAlmostEqual(
-            updated_xyz_hh["coords"][0], [0.0, 0.0, -0.23489249999999995], places=6
+        self.assertVectorAlmostEqual(
+            updated_xyz_hh["coords"][0], [0.0, 0.0, -0.1748924999999999], places=6
         )
 
         test_extracted_xyz_from_ts_oh = {
@@ -284,10 +286,40 @@ class TestHAbAtom(unittest.TestCase):
         updated_xyz_oh = pull_atoms_closer(
             test_extracted_xyz_from_ts_oh, h_index=0, a_index=1, target_distance=0.8
         )
-        self.assertAlmostEqual(
+        self.assertVectorAlmostEqual(
             updated_xyz_oh["coords"][0],
-            [-0.0323894143277068, -0.7125063637576334, -0.0384872795745139],
+            [-0.039644702993638294, -0.8721091059706267, -0.04710850132475226],
             places=6,
+        )
+
+
+        test_extracted_xyz_large = {
+    "symbols": ("H", "C", "C", "C", "H", "H", "H", "H", "H", "H", "H"),
+    "isotopes": (1, 12, 12, 12, 1, 1, 1, 1, 1, 1, 1),
+    "coords": (
+        (-0.8027, -0.7635,  0.1659),  # H0
+        (-0.7519,  0.9714, -0.4422),  # C1
+        (-0.2958, -0.1876,  0.3926),  # C2
+        ( 1.0552, -0.7654,  0.0926),  # C3
+        (-0.6727,  0.7364, -1.5065),  # H4
+        (-1.7884,  1.2349, -0.2276),  # H5
+        (-0.1336,  1.8569, -0.2535),  # H6
+        (-0.5389, -0.1109,  1.4517),  # H7
+        ( 1.8467, -0.0356,  0.3006),  # H8
+        ( 1.2593, -1.6526,  0.6937),  # H9
+        ( 1.1333, -1.0398, -0.9623),  # H10
+    )
+}
+        updated_xyz_large = pull_atoms_closer(
+            test_extracted_xyz_large,
+            h_index=0,  # Adjust H0
+            a_index=2,  # Reference C1
+            target_distance=0.8
+        )
+        self.assertVectorAlmostEqual(
+            updated_xyz_large["coords"][0],
+            [-0.9860357463419134, -0.9717916873511698, 0.08390707497393612],
+            places=6
         )
 
     def test_get_h_abs_atoms_imp(self):
@@ -407,3 +439,8 @@ class TestHAbAtom(unittest.TestCase):
         ts_89_df = convert_xyz_to_df(ts_89_xyz)
         ts_89_results = get_h_abs_atoms(ts_89_df)
         self.assertEqual(ts_89_results, {"H": 4, "A": 1, "B": 5, "C": 0, "D": None})
+
+    def assertVectorAlmostEqual(self, v1, v2, places=6):
+        self.assertEqual(len(v1), len(v2))
+        for a, b in zip(v1, v2):
+            self.assertAlmostEqual(a, b, places=places)
